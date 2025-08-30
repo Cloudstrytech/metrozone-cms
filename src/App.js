@@ -13,7 +13,7 @@ function App() {
     <Router>
       <Navbar />
       <Routes>
-        {/* <Route path='/' element={<Auth />}></Route> */}
+        {/* <Route path='/' element={<Auth />}></Route>  */}
         <Route path='/' element={<EventTable />}></Route>
         <Route path='/update/:id' element={<UpdateEvent />}></Route>
         <Route path='/event' element={<Eventcsr/>}/>

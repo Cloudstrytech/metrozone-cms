@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { db, storage } from "../firebaseConfig"; // Adjust the import path as needed
+import { db, storage } from "../firebaseConfig";
 import {
   collection,
   getDocs,
@@ -12,12 +12,15 @@ import {
 import { Button, Table } from "react-bootstrap";
 import { useNavigate } from "react-router-dom";
 import { deleteObject, ref } from "firebase/storage";
-import Loader from "./Loader"; // Adjust the import path for Loader
+import Loader from "./Loader";
 
 const EventTable = () => {
   const [events, setEvents] = useState([]);
-  const [loading, setLoading] = useState(false); // State for loader
-  const [deletingId, setDeletingId] = useState(null); // Track the ID of the event being deleted
+  const [filteredEvents, setFilteredEvents] = useState([]); // ✅ filtered events
+  const [loading, setLoading] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+  const [filter, setFilter] = useState("All"); // ✅ filter state
+  const [activefilter, setActiveFilter] = useState("All"); // ✅ active filter]
   const navigate = useNavigate();
 
   // Fetch events from Firestore
@@ -32,12 +35,13 @@ const EventTable = () => {
     }));
 
     setEvents(eventsList);
+    setFilteredEvents(eventsList); // ✅ show all initially
   };
 
   // Delete event
   const handleDelete = async (id) => {
     setLoading(true);
-    setDeletingId(id); // Set the deleting ID
+    setDeletingId(id);
     try {
       const eventDocRef = doc(db, "events", id);
       const eventDoc = await getDoc(eventDocRef);
@@ -47,7 +51,7 @@ const EventTable = () => {
         const mainImageUrl = eventData.mainImage;
         const imagesUrls = eventData.images || [];
 
-        // Attempt to delete all associated images from Firebase Storage
+        // Delete all associated images
         const deleteImagePromises = imagesUrls.map((url) => {
           const imageRef = ref(storage, url);
           return deleteObject(imageRef).catch((error) => {
@@ -68,37 +72,120 @@ const EventTable = () => {
           });
         }
 
-        // Wait for all image deletion attempts to complete
         await Promise.all(deleteImagePromises);
-
-        // Proceed to delete the Firestore document
         await deleteDoc(eventDocRef);
 
-        // Refresh the events list
         fetchEvents();
-
-        console.log(`Event with ID: ${id} deleted successfully.`);
-      } else {
-        console.log(`Event with ID: ${id} does not exist in Firestore.`);
       }
     } catch (error) {
       console.error("Error deleting event:", error);
     } finally {
       setLoading(false);
-      setDeletingId(null); // Reset the deleting ID
+      setDeletingId(null);
     }
   };
 
-  
+  // ✅ Apply filter
+  useEffect(() => {
+    if (filter === "All") {
+      setFilteredEvents(events);
+      setActiveFilter("All Events");
+    } else if (filter === "Others") {
+      setFilteredEvents(
+        events.filter(
+          (event) =>
+            !["Health", "Education", "Sports", "Womens Empowerment"].includes(
+              event.programType
+            )
+        )
+      );
+      setActiveFilter("Others");
+    } else {
+      setFilteredEvents(events.filter((event) => event.programType === filter));
+      setActiveFilter(filter);
+    }
+  }, [filter, events]);
+
   useEffect(() => {
     fetchEvents();
   }, []);
-   
+
   return (
     <div className="container mt-4">
       <div className="container d-flex flex-row gap-3 mb-4">
-        <button className="btn btn-success" onClick={() => navigate("/event")}>
+        <button
+          className="btn btn-success text-white fw-bold"
+          onClick={() => navigate("/event")}
+        >
           Add Event +
+        </button>
+
+        {/* Filter Dropdown */}
+        <div className="dropdown">
+          <button
+            className="btn fw-bold text-white dropdown-toggle"
+            style={{ background: "#4584ddff" }}
+            type="button"
+            id="dropdownMenuButton"
+            data-bs-toggle="dropdown"
+            aria-expanded="false"
+          >
+            Filter By <i className="fas fa-filter"></i>
+          </button>
+
+          <ul className="dropdown-menu" aria-labelledby="dropdownMenuButton">
+            <li>
+              <button
+                className="dropdown-item"
+                onClick={() => setFilter("All")}
+              >
+                All Events
+              </button>
+            </li>
+            <li>
+              <button
+                className="dropdown-item"
+                onClick={() => setFilter("Health")}
+              >
+                Health
+              </button>
+            </li>
+            <li>
+              <button
+                className="dropdown-item"
+                onClick={() => setFilter("Education")}
+              >
+                Education
+              </button>
+            </li>
+            <li>
+              <button
+                className="dropdown-item"
+                onClick={() => setFilter("Sports")}
+              >
+                Sports
+              </button>
+            </li>
+            <li>
+              <button
+                className="dropdown-item"
+                onClick={() => setFilter("Womens Empowerment")}
+              >
+                Womens Empowerment
+              </button>
+            </li>
+            <li>
+              <button
+                className="dropdown-item"
+                onClick={() => setFilter("Others")}
+              >
+                Filter by other events
+              </button>
+            </li>
+          </ul>
+        </div>
+        <button className="btn text-sucess" style={{ background: "#e3fae7ff",color:"#008a09ff",border:"1px solid #008a09ff" }}>
+          Fitered by {activefilter}
         </button>
       </div>
 
@@ -115,7 +202,12 @@ const EventTable = () => {
           </tr>
         </thead>
         <tbody>
-          {events.map((event) => (
+          {filteredEvents.length === 0 && (
+            <tr>
+              <td colSpan="6">No events found.</td>
+            </tr>
+          )}
+          {filteredEvents.map((event) => (
             <tr key={event.id}>
               <td>{event.programType}</td>
               <td>{event.title}</td>
@@ -135,14 +227,16 @@ const EventTable = () => {
                   onClick={() => handleDelete(event.id)}
                   disabled={loading && deletingId === event.id}
                 >
-                  {loading && deletingId === event.id ? "Deleting..." : "Delete"}
+                  {loading && deletingId === event.id
+                    ? "Deleting..."
+                    : "Delete"}
                 </Button>
               </td>
             </tr>
           ))}
         </tbody>
       </Table>
-      {loading && <Loader />} {/* Display loader if loading */}
+      {loading && <Loader />}
     </div>
   );
 };

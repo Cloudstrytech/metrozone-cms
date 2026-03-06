@@ -145,7 +145,7 @@ function Eventcsr() {
       });
       setImageFiles([]);
       setMainImageFile(null);
-      setImageUrls([]); 
+      setImageUrls([]);
     } catch (e) {
       setError("Error adding event: " + e.message);
     } finally {
@@ -207,7 +207,7 @@ function Eventcsr() {
               <label htmlFor="title">
                 Title <span className="text-danger">*</span>{" "}
                 <span style={{ fontSize: "0.8rem", fontWeight: "bold" }}>
-                  (Max 50 characters)
+                  (Maximum 50 characters)
                 </span>
               </label>
               <input

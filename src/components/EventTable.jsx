@@ -69,7 +69,11 @@ const resolveImageUrl = async (source) => {
   try {
     return await getDownloadURL(ref(storage, source));
   } catch (err) {
-    console.warn("Failed to resolve storage path to URL:", source, err?.message);
+    console.warn(
+      "Failed to resolve storage path to URL:",
+      source,
+      err?.message,
+    );
     return null;
   }
 };
@@ -90,11 +94,7 @@ const toDataUrl = async (source) => {
       reader.readAsDataURL(blob);
     });
   } catch (err) {
-    console.warn(
-      "Failed to load image for PDF:",
-      source,
-      err?.message || err,
-    );
+    console.warn("Failed to load image for PDF:", source, err?.message || err);
     return null;
   }
 };
@@ -468,7 +468,7 @@ const EventTable = () => {
   return (
     <div className="container mt-4">
       {/* ── Toolbar ── */}
-      <div className="container d-flex flex-row flex-wrap gap-3 align-items-center mb-4">
+      <div className="container d-flex flex-row flex-wrap gap-3 align-items-center mb-4 position-sticky top-0 bg-white py-3 ">
         {/* Add Event */}
         <button
           className="btn btn-success text-white fw-bold"

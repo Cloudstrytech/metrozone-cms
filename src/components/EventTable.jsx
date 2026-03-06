@@ -281,12 +281,12 @@ const generatePDF = async (selectedEventsList) => {
     }
     curY += mainImageH + 10;
 
-    const gallery = (event.images || []).slice(0, 4);
+    const gallery = (event.images || []).slice(0, 6);
     const gap = 8;
     const thumbW = (contentW - gap) / 2;
-    const thumbH = 72;
+    const thumbH = 90;
 
-    for (let gi = 0; gi < 4; gi++) {
+    for (let gi = 0; gi < gallery.length; gi++) {
       const row = Math.floor(gi / 2);
       const col = gi % 2;
       const x = margin + col * (thumbW + gap);

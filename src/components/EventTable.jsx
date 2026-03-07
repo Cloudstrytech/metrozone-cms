@@ -78,13 +78,20 @@ const resolveImageUrl = async (source) => {
   }
 };
 
+const buildImageProxyUrl = (imageUrl) =>
+  `/api/image-proxy?url=${encodeURIComponent(imageUrl)}`;
+
 // Convert Storage source (download URL / gs:// / path) to data URL.
 const toDataUrl = async (source) => {
   if (!source) return null;
   try {
     const imageUrl = await resolveImageUrl(source);
     if (!imageUrl) return null;
-    const resp = await fetch(imageUrl);
+    let resp = await fetch(buildImageProxyUrl(imageUrl));
+    if (!resp.ok) {
+      // Local dev (CRA dev server) may not expose /api; try direct URL as fallback.
+      resp = await fetch(imageUrl);
+    }
     if (!resp.ok) throw new Error(`Image fetch failed: ${resp.status}`);
     const blob = await resp.blob();
     return await new Promise((resolve, reject) => {
@@ -99,14 +106,9 @@ const toDataUrl = async (source) => {
   }
 };
 
-const drawPlaceholder = (pdf, x, y, w, h, label, fontName) => {
-  pdf.setDrawColor(190, 190, 190);
-  pdf.setFillColor(248, 248, 248);
-  pdf.rect(x, y, w, h, "FD");
-  pdf.setFont(fontName, "normal");
-  pdf.setFontSize(9);
-  pdf.setTextColor(130, 130, 130);
-  pdf.text(label, x + w / 2, y + h / 2 + 3, { align: "center" });
+const drawBlankTile = (pdf, x, y, w, h) => {
+  pdf.setFillColor(255, 255, 255);
+  pdf.rect(x, y, w, h, "F");
 };
 
 const getImageFormat = (dataUrl) => {
@@ -115,6 +117,18 @@ const getImageFormat = (dataUrl) => {
   if (!match) return "JPEG";
   const raw = match[1].toUpperCase();
   return raw === "JPG" ? "JPEG" : raw;
+};
+
+const getEventUrl = (event) => {
+  const explicit =
+    event?.eventUrl || event?.url || event?.route || event?.permalink || "";
+  if (typeof explicit === "string" && explicit.trim()) {
+    if (/^https?:\/\//i.test(explicit.trim())) return explicit.trim();
+    return `https://metrozone-csr.vercel.app/Events-details/${explicit.trim().replace(/^\/+/, "")}`;
+  }
+  return event?.id
+    ? `https://metrozone-csr.vercel.app/Events-details/${event.id}`
+    : "N/A";
 };
 
 /* ─── PDF generation ──────────────────────────────────────────── */
@@ -168,16 +182,25 @@ const generatePDF = async (selectedEventsList) => {
     let curY = 72;
     const col1X = margin;
     const col2X = margin + 130;
-    const rowH = 22;
+    const rowMinH = 22;
 
     const meta = [
       ["Program Type", event.programType || "—"],
       ["Event Date", event.eventDate || "—"],
       ["Partner", event.partner || "—"],
       ["Location", event.eventVenue || "—"],
+      ["Event URL", getEventUrl(event)],
     ];
 
     meta.forEach(([label, value], idx) => {
+      const isEventUrlRow =
+        label === "Event URL" &&
+        typeof value === "string" &&
+        /^https?:\/\//i.test(value);
+      const valLines = isEventUrlRow
+        ? [String(value)]
+        : splitText(pdf, String(value), contentW - 135);
+      const rowH = Math.max(rowMinH, 14 + valLines.length * 12);
       if (idx % 2 === 0) {
         pdf.setFillColor(240, 245, 255);
         pdf.rect(margin, curY - 15, contentW, rowH, "F");
@@ -188,10 +211,20 @@ const generatePDF = async (selectedEventsList) => {
       pdf.text(label.toUpperCase(), col1X, curY);
 
       pdf.setFont(fontName, "normal");
-      pdf.setFontSize(10);
-      pdf.setTextColor(20, 20, 20);
-      const valLines = splitText(pdf, String(value), contentW - 135);
-      valLines.forEach((vl, vli) => pdf.text(vl, col2X, curY + vli * 12));
+      pdf.setFontSize(isEventUrlRow ? 9.5 : 10);
+      pdf.setTextColor(
+        isEventUrlRow ? 26 : 20,
+        isEventUrlRow ? 115 : 20,
+        isEventUrlRow ? 232 : 20,
+      );
+      if (isEventUrlRow) {
+        pdf.textWithLink(String(value), col2X, curY, {
+          url: String(value),
+          target: "_blank",
+        });
+      } else {
+        valLines.forEach((vl, vli) => pdf.text(vl, col2X, curY + vli * 12));
+      }
       curY += rowH;
     });
 
@@ -217,7 +250,7 @@ const generatePDF = async (selectedEventsList) => {
       event.description || "No description provided.",
       contentW,
     );
-    const maxDescLines = Math.min(descLines.length, 8);
+    const maxDescLines = Math.min(descLines.length, 5);
     descLines.slice(0, maxDescLines).forEach((dl) => {
       pdf.text(dl, margin, curY);
       curY += 12;
@@ -233,7 +266,7 @@ const generatePDF = async (selectedEventsList) => {
       curY += 12;
     }
 
-    /* ── 5. Images (main + first 4 gallery) ───────────────────── */
+    /* ── 5. Images (4x3 unified grid; main + gallery together) ── */
     curY += 6;
     pdf.setDrawColor(200, 200, 200);
     pdf.line(margin, curY, pageW - margin, curY);
@@ -245,70 +278,54 @@ const generatePDF = async (selectedEventsList) => {
     pdf.text("EVENT IMAGES", margin, curY);
     curY += 12;
 
-    const mainImageH = 120;
-    const mainData = await toDataUrl(event.mainImage);
-    if (mainData) {
-      try {
-        pdf.addImage(
-          mainData,
-          getImageFormat(mainData),
-          margin,
-          curY,
-          contentW,
-          mainImageH,
-        );
-      } catch {
-        drawPlaceholder(
-          pdf,
-          margin,
-          curY,
-          contentW,
-          mainImageH,
-          "Main image unavailable",
-          fontName,
-        );
-      }
-    } else {
-      drawPlaceholder(
-        pdf,
-        margin,
-        curY,
-        contentW,
-        mainImageH,
-        "Main image not available",
-        fontName,
-      );
-    }
-    curY += mainImageH + 10;
+    const imageSources = [
+      event.mainImage,
+      ...(Array.isArray(event.images) ? event.images : []),
+    ].filter(Boolean);
+    const maxGridItems = 10; // 5x2 per event page
+    const gridItems = imageSources.slice(0, maxGridItems);
+    const extraCount = Math.max(0, imageSources.length - maxGridItems);
 
-    const gallery = (event.images || []).slice(0, 6);
-    const gap = 8;
-    const thumbW = (contentW - gap) / 2;
-    const thumbH = 90;
+    const cols = 2;
+    const rows = 5;
+    const colGap = 6;
+    const rowGap = 6;
+    const thumbW = (contentW - colGap * (cols - 1)) / cols;
+    const gridTop = curY;
+    const gridBottomLimit = pageH - 46; // leave room for footer bar
+    const thumbH = (gridBottomLimit - gridTop - rowGap * (rows - 1)) / rows;
 
-    for (let gi = 0; gi < gallery.length; gi++) {
-      const row = Math.floor(gi / 2);
-      const col = gi % 2;
-      const x = margin + col * (thumbW + gap);
-      const y = curY + row * (thumbH + gap);
-      const data = await toDataUrl(gallery[gi]);
+    for (let gi = 0; gi < maxGridItems; gi++) {
+      const row = Math.floor(gi / cols);
+      const col = gi % cols;
+      const x = margin + col * (thumbW + colGap);
+      const y = curY + row * (thumbH + rowGap);
+      const src = gridItems[gi];
 
-      if (data) {
-        try {
-          pdf.addImage(data, getImageFormat(data), x, y, thumbW, thumbH);
-          continue;
-        } catch {
-          // fall through to placeholder
+      if (src) {
+        const data = await toDataUrl(src);
+        if (data) {
+          try {
+            pdf.addImage(data, getImageFormat(data), x, y, thumbW, thumbH);
+            continue;
+          } catch {
+            // fall through to placeholder
+          }
         }
+        drawBlankTile(pdf, x, y, thumbW, thumbH);
+      } else {
+        drawBlankTile(pdf, x, y, thumbW, thumbH);
       }
-      drawPlaceholder(
-        pdf,
-        x,
-        y,
-        thumbW,
-        thumbH,
-        `Image ${gi + 1} not available`,
-        fontName,
+    }
+
+    if (extraCount > 0) {
+      pdf.setFont(fontName, "normal");
+      pdf.setFontSize(8.5);
+      pdf.setTextColor(110, 110, 110);
+      pdf.text(
+        `Showing first ${maxGridItems} images on this page. ${extraCount} more not shown.`,
+        margin,
+        pageH - 34,
       );
     }
 

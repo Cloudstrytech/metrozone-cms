@@ -131,6 +131,29 @@ const getEventUrl = (event) => {
     : "N/A";
 };
 
+const syncLocalBackup = async (eventsList) => {
+  const response = await fetch("/api/local-backup/sync", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ events: eventsList }),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(payload?.details || payload?.error || "Backup sync failed");
+  }
+
+  return payload;
+};
+
+const shouldRunLocalBackup = () =>
+  typeof window !== "undefined" &&
+  (window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1");
+
 /* ─── PDF generation ──────────────────────────────────────────── */
 
 const generatePDF = async (selectedEventsList) => {
@@ -369,6 +392,8 @@ const EventTable = () => {
   const [activefilter, setActiveFilter] = useState("All");
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [generatingPdf, setGeneratingPdf] = useState(false);
+  const [backupStatus, setBackupStatus] = useState("idle");
+  const [backupMessage, setBackupMessage] = useState("");
   const navigate = useNavigate();
 
   // Fetch events from Firestore
@@ -382,6 +407,30 @@ const EventTable = () => {
     }));
     setEvents(eventsList);
     setFilteredEvents(eventsList);
+
+    if (!shouldRunLocalBackup()) {
+      setBackupStatus("idle");
+      setBackupMessage("");
+      return;
+    }
+
+    setBackupStatus("syncing");
+    setBackupMessage("Syncing local backup...");
+
+    try {
+      const result = await syncLocalBackup(eventsList);
+      setBackupStatus("success");
+      setBackupMessage(
+        `Local backup synced: ${result.totalEvents} events in ${result.backupRoot}`,
+      );
+    } catch (error) {
+      console.error("Local backup sync failed:", error);
+      setBackupStatus("error");
+      setBackupMessage(
+        error?.message ||
+          "Local backup sync failed. Check the terminal running the CMS.",
+      );
+    }
   };
 
   // Delete event
@@ -619,6 +668,20 @@ const EventTable = () => {
             </>
           )}
         </button>
+
+        {shouldRunLocalBackup() && backupStatus !== "idle" && (
+          <div
+            className={`small fw-semibold ${
+              backupStatus === "error"
+                ? "text-danger"
+                : backupStatus === "syncing"
+                  ? "text-secondary"
+                  : "text-success"
+            }`}
+          >
+            {backupStatus === "syncing" ? "Syncing backup..." : backupMessage}
+          </div>
+        )}
       </div>
 
       <h2 className="mb-4">Events Table</h2>
